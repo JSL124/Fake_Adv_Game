@@ -1,44 +1,25 @@
-# Lane Runner MVP
+# Neural Breaker – Swarm Prototype (game_v2.html)
 
-HTML5 canvas prototype for a portrait, lane-based casual action game with math gates, troop clusters, and a simple boss encounter. No external assets or libraries—just `index.html`, `style.css`, and `game.js`.
+HTML5 canvas prototype of a portrait, lane-based auto-runner with math gates that grow/shrink a swarm. Built with vanilla JS and procedural SFX.
 
 ## Play
-- Open `index.html` in a modern desktop or mobile browser.
-- Tap/click START to begin. Drag left/right on the screen to swap lanes. The runner auto-moves forward.
+- Open `game_v2.html` in a modern browser.
+- Tap/click DEPLOY to start.
+- Drag left/right to steer within the lane. Forward movement is automatic; autofire scales with swarm size.
 
 ## Core Systems
-- **Math Gates:** Left/right panels apply `+`, `-`, `×`, or `÷` to your troop count. Values are scaled to keep at least one reasonable choice. Division is rounded down and clamped to minimum 1.
-- **Troop Cluster:** Troop count is represented by soldier pictograms (capped at `maxVisibleTroops` for performance) while the count remains exact. More troops increase auto-fire damage.
-- **Enemies:** Simple lane walkers with scaling HP.
-- **Boss:** Spawns near 85% progress, has HP bar, takes damage proportional to troop count (plus bullet hits), and deals periodic troop damage. If troops reach 0, you fail.
+- **Math Gates:** Random `+`, `-`, `×`, `÷` gates. At least one “good” gate is guaranteed; division is integer (floor) with min clamp to 0. Colliding a gate instantly applies the operation to troop count.
+- **Swarm:** Troop count drives both visuals (up to 80 dots) and fire rate (faster with more units). Swarm spreads out as count grows.
+- **Enemies:** Simple walkers; HP scales over time. Bullets damage enemies; contact reduces troops by a fixed loss.
+- **Audio:** Procedural tones for growth/shrink and shooting (AudioContext), initialized on start.
 
 ## Controls
-- Drag or swipe anywhere on the screen to change lanes. Forward movement is automatic.
+- Drag on screen to steer horizontally. Release to stop steering. There is no forward control.
 
-## Tuning
-Edit the constants at the top of `game.js`:
-- `laneCount`, `speed`, `stageLength`, `gateDistances`
-- `maxVisibleTroops` (pictogram cap)
-- Boss knobs: `bossHP`, `bossDamagePerTick`, `bossTickInterval`, `troopDamageToBossPerSecond`, `bossSpawnAt`
-- Gate balance: adjust values inside `makeGatePair()`
+## Fail/Restart
+- When troops hit zero, an alert shows “MISSION FAILED” and the run auto-resets to PLAY state.
 
-## UX / Feedback
-- Troop label floats above the cluster with a dark backdrop for readability.
-- Popups show gate results and damage taken.
-- SFX stubs exist via `playSfx(name)`; wire up WebAudio as needed.
-
-## Files
-- `index.html` – markup and HUD/overlay
-- `style.css` – layout and HUD styling
-- `game.js` – game loop, math gates, troop cluster, enemies, boss logic, drawing
-
-## Known Considerations
-- SFX are stubs; no audio is played until you hook WebAudio.
-- Overlay text persists between runs (e.g., “Stage Complete” after finishing). If you need a fresh prompt each run, reset the overlay text in `reset()`.
-
-## Legacy Prototype: `game_v2.html`
-- Swarm auto-runner with math gates and procedural SFX.
-- Controls: drag to steer within a single lane strip; autofire scales with troop count.
-- Math gates: random `+`, `-`, `×`, `÷` with at least one “good” option; division is integer, min clamp at 0.
-- Visuals: swarm dots (max 80 visible), simple enemies, lane grid.
-- Limitations: uses alert-based game over; mutation of arrays during `forEach` can skip collisions if multiple gates/enemies overlap. Recommended to iterate backward when splicing.
+## Known Caveats
+- `forEach` with `splice` in gate/enemy collision can skip overlaps if multiple objects collide in one frame; a reverse loop is safer.
+- Alert-based game over is blocking and immediately re-enters PLAY after dismissal (no overlay).
+- AudioContext must be unlocked by a user gesture (start button); sounds before that are dropped.
