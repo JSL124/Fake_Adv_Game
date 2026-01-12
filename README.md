@@ -35,3 +35,10 @@ Edit the constants at the top of `game.js`:
 ## Known Considerations
 - SFX are stubs; no audio is played until you hook WebAudio.
 - Overlay text persists between runs (e.g., “Stage Complete” after finishing). If you need a fresh prompt each run, reset the overlay text in `reset()`.
+
+## Legacy Prototype: `game_v2.html`
+- Swarm auto-runner with math gates and procedural SFX.
+- Controls: drag to steer within a single lane strip; autofire scales with troop count.
+- Math gates: random `+`, `-`, `×`, `÷` with at least one “good” option; division is integer, min clamp at 0.
+- Visuals: swarm dots (max 80 visible), simple enemies, lane grid.
+- Limitations: uses alert-based game over; mutation of arrays during `forEach` can skip collisions if multiple gates/enemies overlap. Recommended to iterate backward when splicing.
