@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Neural Breaker: Mech Prototype</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #111; font-family: 'Segoe UI', sans-serif; touch-action: none; }
+        canvas { display: block; margin: 0 auto; background: #222; box-shadow: 0 0 50px rgba(0,0,0,0.8); }
+        
+        /* UI 레이어 */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; }
+        #top-hud { padding: 20px; text-align: center; color: #00d2ff; text-shadow: 0 0 10px #00d2ff; font-size: 24px; font-weight: 800; letter-spacing: 2px; }
+        #bottom-hud { padding: 20px; text-align: center; color: rgba(255,255,255,0.5); font-size: 14px; }
+        
+        /* 시작 버튼 */
+        #start-overlay { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.85); 
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            backdrop-filter: blur(5px); z-index: 10;
+        }
+        h1 { color: #fff; font-size: 40px; margin-bottom: 10px; font-style: italic; text-transform: uppercase; }
+        p { color: #aaa; margin-bottom: 30px; }
+        button {
+            background: linear-gradient(45deg, #00d2ff, #0078ff);
+            border: none; padding: 15px 50px; color: white; font-size: 20px; font-weight: bold;
+            border-radius: 4px; cursor: pointer; box-shadow: 0 0 20px rgba(0, 210, 255, 0.4);
+            transition: transform 0.1s; text-transform: uppercase;
+        }
+        button:active { transform: scale(0.95); }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <div id="top-hud">
+        SCORE: <span id="score">0</span> <span style="margin:0 15px">|</span> WEAPON: LV.<span id="lv">1</span>
+    </div>
+    <div id="bottom-hud">SYSTEM: ONLINE // AUDIO: ENABLED</div>
+</div>
+
+<div id="start-overlay">
+    <h1>Neural Breaker</h1>
+    <p>DRAG to Steer // SOUND ON Required</p>
+    <button onclick="initGame()">INITIALIZE MECH</button>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+    /** * [Game Design: Step 1]
+     * - Mech Movement (Weighted Physics)
+     * - Dynamic Camera (Lerp)
+     * - Procedural Audio (SFX)
+     */
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    // --- 1. Audio System (Procedural SFX) ---
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    let actx;
+    let masterGain;
+
+    function initAudio() {
+        if (!actx) {
+            actx = new AudioContext();
+            masterGain = actx.createGain();
+            masterGain.gain.value = 0.3; // 전체 볼륨
+            masterGain.connect(actx.destination);
+        }
+        if (actx.state === 'suspended') actx.resume();
+    }
+
+    const SFX = {
+        shoot: () => {
+            if(!actx) return;
+            const osc = actx.createOscillator();
+            const gain = actx.createGain();
+            osc.type = 'square'; // 기계적인 느낌
+            osc.frequency.setValueAtTime(300, actx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(50, actx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.1, actx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + 0.1);
+            osc.connect(gain); gain.connect(masterGain);
+            osc.start(); osc.stop(actx.currentTime + 0.1);
+        },
+        step: () => { // 묵직한 발걸음
+            if(!actx) return;
+            const osc = actx.createOscillator();
+            const gain = actx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(80, actx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(10, actx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.3, actx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, actx.currentTime + 0.15);
+            osc.connect(gain); gain.connect(masterGain);
+            osc.start(); osc.stop(actx.currentTime + 0.15);
+        },
+        gateBlue: () => { // 긍정적 화음 (도-미-솔)
+            if(!actx) return;
+            [440, 554, 659].forEach((freq, i) => { // A Major
+                const osc = actx.createOscillator();
+                const gain = actx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(0.05, actx.currentTime + i*0.05);
+                gain.gain.linearRampToValueAtTime(0, actx.currentTime + i*0.05 + 0.3);
+                osc.connect(gain); gain.connect(masterGain);
+                osc.start(actx.currentTime + i*0.05);
+                osc.stop(actx.currentTime + i*0.05 + 0.3);
+            });
+        },
+        gateRed: () => { // 부정적 노이즈
+            if(!actx) return;
+            const osc = actx.createOscillator();
+            const gain = actx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(100, actx.currentTime);
+            osc.frequency.linearRampToValueAtTime(50, actx.currentTime + 0.3);
+            gain.gain.setValueAtTime(0.2, actx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, actx.currentTime + 0.3);
+            osc.connect(gain); gain.connect(masterGain);
+            osc.start(); osc.stop(actx.currentTime + 0.3);
+        }
+    };
+
+    // --- 2. Game Variables ---
+    let width, height;
+    let state = 'MENU'; // MENU, PLAY, GAMEOVER
+    let frame = 0;
+    
+    // Player (Mech)
+    const player = {
+        x: 0, y: 0, // 화면 중앙 기준 오프셋이 아니라 실제 좌표
+        targetX: 0, // 마우스 목표 지점 (Lerp용)
+        width: 50, height: 60,
+        level: 1,
+        bobbing: 0 // 걸을 때 위아래 움직임
+    };
+
+    // Camera
+    const camera = {
+        x: 0, // 카메라의 X 위치
+        lag: 0.1 // 따라오는 속도 (0.1 = 부드럽게, 1.0 = 즉시)
+    };
+
+    // World
+    const laneWidth = 400; // 전체 도로 폭
+    let objects = []; // 총알, 적, 게이트 통합 관리
+    let particles = [];
+    let score = 0;
+    let speed = 8; // 전진 속도
+
+    // Input
+    let isDragging = false;
+    let dragStartX = 0;
+    let playerStartX = 0;
+
+    // --- 3. Setup & Loop ---
+    function resize() {
+        width = Math.min(window.innerWidth, 550); // 모바일 비율 유지
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+        player.y = height - 150;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function initGame() {
+        document.getElementById('start-overlay').style.display = 'none';
+        initAudio();
+        reset();
+        state = 'PLAY';
+        loop();
+    }
+
+    function reset() {
+        player.x = width / 2;
+        player.targetX = width / 2;
+        player.level = 1;
+        camera.x = width / 2;
+        score = 0;
+        objects = [];
+        particles = [];
+        frame = 0;
+    }
+
+    // Input Handlers
+    const onDown = (e) => {
+        if(state !== 'PLAY') return;
+        isDragging = true;
+        dragStartX = e.clientX || e.touches[0].clientX;
+        playerStartX = player.targetX;
+    };
+    const onMove = (e) => {
+        if(!isDragging) return;
+        const cx = e.clientX || e.touches[0].clientX;
+        const diff = (cx - dragStartX) * 1.5; // 감도 1.5배
+        player.targetX = playerStartX + diff;
+        
+        // 도로 밖 제한
+        const margin = 40;
+        player.targetX = Math.max(width/2 - laneWidth/2 + margin, Math.min(width/2 + laneWidth/2 - margin, player.targetX));
+    };
+    const onUp = () => { isDragging = false; };
+
+    canvas.addEventListener('mousedown', onDown);
+    canvas.addEventListener('touchstart', onDown);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('touchmove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchend', onUp);
+
+
+    // --- 4. Core Logic ---
+    function update() {
+        // 1. Player Movement & Camera Lag (Lerp)
+        // 플레이어는 목표 지점으로 부드럽게 이동 (무게감)
+        player.x += (player.targetX - player.x) * 0.2;
+        
+        // 카메라는 플레이어를 더 천천히 따라감 (지연 효과)
+        camera.x += (player.x - camera.x) * camera.lag;
+
+        // 2. Bobbing (걷는 애니메이션)
+        player.bobbing = Math.sin(frame * 0.4) * 3;
+        if(frame % 15 === 0) SFX.step(); // 발걸음 소리
+
+        // 3. Auto Fire
+        if (frame % (25 - player.level * 4) === 0) { // 레벨 오르면 빨라짐
+            spawnBullet();
+            SFX.shoot();
+        }
+
+        // 4. Object Spawning
+        if (frame % 60 === 0) spawnEnemy();
+        if (frame % 300 === 0) spawnGate();
+
+        // 5. Update Objects
+        updateObjects();
+    }
+
+    function spawnBullet() {
+        // 무기 레벨별 발사 패턴
+        let cnt = player.level;
+        let startX = player.x - (cnt-1)*10;
+        for(let i=0; i<cnt; i++) {
+            objects.push({
+                type: 'bullet',
+                x: startX + i*20,
+                y: player.y - 40,
+                w: 6, h: 15,
+                vx: 0, vy: -20,
+                color: '#ffeb3b'
+            });
+        }
+    }
+
+    function spawnEnemy() {
+        // 카메라 위치 기준으로 생성 (화면 중앙에 오도록)
+        const spawnX = (camera.x - laneWidth/3) + Math.random() * (laneWidth*0.6);
+        objects.push({
+            type: 'enemy',
+            x: spawnX, y: -50,
+            w: 40, h: 40,
+            hp: 3 + Math.floor(score/500),
+            color: '#e53935'
+        });
+    }
+
+    function spawnGate() {
+        const y = -100;
+        const gateW = laneWidth / 2 - 20;
+        // Left (Blue)
+        objects.push({
+            type: 'gate', kind: 'buff',
+            x: width/2 - gateW - 5, y: y, w: gateW, h: 10,
+            text: '+UPGRADE', color: 'rgba(0, 210, 255, 0.6)'
+        });
+        // Right (Red)
+        objects.push({
+            type: 'gate', kind: 'debuff',
+            x: width/2 + 5, y: y, w: gateW, h: 10,
+            text: '-DOWN', color: 'rgba(255, 60, 60, 0.6)'
+        });
+    }
+
+    function updateObjects() {
+        for (let i = objects.length - 1; i >= 0; i--) {
+            let o = objects[i];
+            
+            if (o.type === 'bullet') {
+                o.x += o.vx; o.y += o.vy;
+            } else {
+                o.y += speed; // 적과 게이트는 내려옴
+            }
+
+            // 충돌 처리
+            if (o.type === 'bullet') {
+                // 총알 vs 적
+                // 총알 제거 및 적 피격 로직 생략 (간소화)
+            } else if (o.type === 'enemy') {
+                 // 총알과 충돌 체크
+                 for (let j = objects.length - 1; j >= 0; j--) {
+                    let b = objects[j];
+                    if (b.type === 'bullet' && 
+                        Math.abs(b.x - o.x) < o.w/2 + 5 && 
+                        Math.abs(b.y - o.y) < o.h/2 + 10) {
+                        
+                        o.hp--;
+                        objects.splice(j, 1); // 총알 삭제
+                        
+                        // 피격 파티클
+                        spawnParticles(o.x, o.y, '#fff', 3);
+
+                        if(o.hp <= 0) {
+                            score += 100;
+                            spawnParticles(o.x, o.y, '#ff5722', 10);
+                            objects.splice(i, 1); // 적 삭제
+                        }
+                        break;
+                    }
+                 }
+                 // 플레이어 충돌 (게임오버)
+                 if(Math.abs(player.x - o.x) < 30 && Math.abs(player.y - o.y) < 40) {
+                     alert("SYSTEM CRITICAL. SCORE: " + score);
+                     reset();
+                 }
+            } else if (o.type === 'gate') {
+                // 게이트 통과
+                if(player.y > o.y - 50 && player.y < o.y + 10 &&
+                   player.x > o.x && player.x < o.x + o.w) {
+                    
+                    if(o.kind === 'buff') {
+                        player.level = Math.min(3, player.level + 1);
+                        SFX.gateBlue();
+                        spawnParticles(player.x, player.y, '#00d2ff', 20);
+                    } else {
+                        player.level = Math.max(1, player.level - 1);
+                        SFX.gateRed();
+                        spawnParticles(player.x, player.y, '#ff0000', 20);
+                    }
+                    objects.splice(i, 1);
+                }
+            }
+
+            // 화면 밖 제거
+            if (o.y > height + 100 || o.y < -200) objects.splice(i, 1);
+        }
+
+        // 파티클 업데이트
+        for(let i=particles.length-1; i>=0; i--) {
+            let p = particles[i];
+            p.x += p.vx; p.y += p.vy; p.life -= 0.05;
+            if(p.life <= 0) particles.splice(i, 1);
+        }
+    }
+
+    function spawnParticles(x, y, color, count) {
+        for(let i=0; i<count; i++) {
+            particles.push({
+                x: x, y: y,
+                vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10,
+                life: 1.0, color: color
+            });
+        }
+    }
+
+    // --- 5. Rendering (Draw) ---
+    function draw() {
+        ctx.clearRect(0, 0, width, height);
+
+        // A. Camera Logic for Rendering
+        // 카메라가 X축으로 이동한 만큼, 월드를 반대로 밀어서 그림
+        // 중심점(width/2)을 기준으로 보정
+        const camOffset = width/2 - camera.x;
+
+        ctx.save();
+        ctx.translate(camOffset, 0); // *** 월드 이동 ***
+
+        // B. Road (Lane)
+        ctx.fillStyle = '#333';
+        ctx.fillRect(width/2 - laneWidth/2, 0, laneWidth, height); // 도로 바닥
+        
+        // 도로 라인 (Moving effect)
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 4;
+        ctx.setLineDash([40, 60]);
+        ctx.lineDashOffset = -frame * speed;
+        ctx.beginPath();
+        ctx.moveTo(width/2 - laneWidth/6, 0); ctx.lineTo(width/2 - laneWidth/6, height);
+        ctx.moveTo(width/2 + laneWidth/6, 0); ctx.lineTo(width/2 + laneWidth/6, height);
+        ctx.stroke();
+
+        // 도로 경계선 (네온)
+        ctx.strokeStyle = '#00d2ff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(width/2 - laneWidth/2, 0); ctx.lineTo(width/2 - laneWidth/2, height);
+        ctx.moveTo(width/2 + laneWidth/2, 0); ctx.lineTo(width/2 + laneWidth/2, height);
+        ctx.stroke();
+
+        // C. Objects Draw
+        // Gates
+        objects.forEach(o => {
+            if(o.type === 'gate') {
+                // 게이트 바닥 빛
+                ctx.fillStyle = o.color;
+                ctx.globalAlpha = 0.3;
+                ctx.fillRect(o.x, o.y - 60, o.w, 60); // Energy Field
+                ctx.globalAlpha = 1.0;
+                ctx.fillRect(o.x, o.y, o.w, 5); // Bottom Bar
+                
+                // 텍스트
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 16px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(o.text, o.x + o.w/2, o.y - 20);
+            }
+        });
+
+        // Enemies
+        objects.forEach(o => {
+            if(o.type === 'enemy') {
+                ctx.fillStyle = o.color;
+                // 단순 박스 대신 약간의 로봇 느낌 (헤드)
+                ctx.fillRect(o.x - o.w/2, o.y - o.h/2, o.w, o.h);
+                ctx.fillStyle = '#000'; // 눈
+                ctx.fillRect(o.x - 5, o.y, 10, 5);
+                
+                // HP Bar
+                ctx.fillStyle = 'red';
+                ctx.fillRect(o.x - 15, o.y - 30, 30, 4);
+                ctx.fillStyle = '#0f0';
+                ctx.fillRect(o.x - 15, o.y - 30, 30 * (o.hp / (3+Math.floor(score/500))), 4);
+            }
+        });
+
+        // Bullets
+        objects.forEach(o => {
+            if(o.type === 'bullet') {
+                ctx.fillStyle = o.color;
+                ctx.beginPath();
+                ctx.arc(o.x, o.y, 4, 0, Math.PI*2);
+                ctx.fill();
+                // Trail
+                ctx.strokeStyle = 'rgba(255, 235, 59, 0.5)';
+                ctx.beginPath();
+                ctx.moveTo(o.x, o.y);
+                ctx.lineTo(o.x, o.y + 15);
+                ctx.stroke();
+            }
+        });
+        
+        // Particles
+        particles.forEach(p => {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life;
+            ctx.fillRect(p.x, p.y, 4, 4);
+        });
+        ctx.globalAlpha = 1.0;
+
+        // D. Player (The Mech)
+        // 메카닉 그리기 (몸통 + 다리 + 무기)
+        const py = player.y + player.bobbing; // 걷는 모션 적용
+        
+        // 다리 (간단히)
+        ctx.fillStyle = '#555';
+        ctx.fillRect(player.x - 15, py + 10, 10, 20); // 왼발
+        ctx.fillRect(player.x + 5, py + 10, 10, 20); // 오른발
+
+        // 몸통 (Ark Chassis)
+        ctx.fillStyle = '#222';
+        ctx.fillRect(player.x - 20, py - 20, 40, 40);
+        ctx.strokeStyle = '#00d2ff'; // 네온 테두리
+        ctx.strokeRect(player.x - 20, py - 20, 40, 40);
+
+        // 무기 (레벨에 따라 시각적 변화)
+        ctx.fillStyle = '#888';
+        if(player.level >= 1) ctx.fillRect(player.x - 5, py - 30, 10, 20); // 중앙 포탑
+        if(player.level >= 2) {
+            ctx.fillRect(player.x - 25, py - 10, 5, 15); // 왼쪽 포드
+            ctx.fillRect(player.x + 20, py - 10, 5, 15); // 오른쪽 포드
+        }
+        
+        ctx.restore(); // 좌표계 복구 (UI는 카메라 영향 안받음)
+
+        // UI Update
+        document.getElementById('score').innerText = score;
+        document.getElementById('lv').innerText = player.level;
+    }
+
+    function loop() {
+        if(state === 'PLAY') {
+            update();
+            draw();
+            frame++;
+            requestAnimationFrame(loop);
+        }
+    }
+
+</script>
+</body>
+</html>
